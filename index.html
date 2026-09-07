@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<script src="chart.umd.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -245,7 +245,7 @@ nav.tabbar button.active .ic{filter:drop-shadow(0 0 6px rgba(244,169,59,0.5));}
     <div class="brand-mark"></div>
     <div class="brand-text">
       <h1>Finanzas Tigre</h1>
-      <span id="monthLabel">Agosto 2026</span>
+      <span id="monthLabel">Cocho-Charo</span>
     </div>
     <div class="month-pill mono" id="todayPill">--</div>
   </div>
@@ -2154,7 +2154,7 @@ function renderAll(){
   renderExpenseList();
   renderAhorro();
   renderGraficas();
-  document.getElementById('monthLabel').textContent = monthDisplay(state.month).replace(/^./, c=>c.toUpperCase());
+  // Subtítulo fijo "Cocho-Charo" — ya no muestra el mes dinámico aquí (el mes se ve en la pestaña Ahorro y en cada tarjeta)
 }
 
 document.getElementById('todayPill').textContent = new Date().toLocaleDateString('es-ES',{day:'2-digit', month:'short'});

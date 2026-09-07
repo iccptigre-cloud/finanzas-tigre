@@ -1,8 +1,9 @@
-const CACHE_NAME = 'finanzas-tigre-v9';
+const CACHE_NAME = 'finanzas-tigre-v13';
 const ASSETS = [
   './',
   './index.html',
   './manifest.json',
+  './chart.umd.js',
   './icons/icon-192.png',
   './icons/icon-512.png'
 ];
