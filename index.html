@@ -218,6 +218,20 @@ nav.tabbar button.active .ic{filter:drop-shadow(0 0 6px rgba(244,169,59,0.5));}
 }
 .close-month-box .txt{font-size:12.5px; color:var(--cream-dim); line-height:1.4;}
 
+.rep-letterhead{ display:flex; align-items:center; gap:16px; border-bottom:3px solid #E8630A; padding-bottom:16px; margin-bottom:20px; }
+.rep-letterhead .rep-brand-text{ display:flex; flex-direction:column; }
+.rep-family{ font-family:Arial, sans-serif; font-size:12px; color:#888; letter-spacing:2px; text-transform:uppercase; margin-top:2px; }
+.rep-kpi-row{ display:flex; gap:12px; margin:14px 0 22px; }
+.rep-kpi{ flex:1; background:#FFF7EC; border:1px solid #F4D9B0; border-radius:8px; padding:12px 14px; text-align:center; }
+.rep-kpi .rep-kpi-label{ font-size:10.5px; color:#8a5a1f; text-transform:uppercase; letter-spacing:0.5px; }
+.rep-kpi .rep-kpi-value{ font-family:Arial, sans-serif; font-size:19px; font-weight:bold; color:#1B140D; margin-top:3px; }
+.rep-chart-block{ margin:14px 0 24px; text-align:center; page-break-inside:avoid; }
+.rep-chart-block img{ width:100%; max-width:620px; border:1px solid #eee; border-radius:8px; }
+.rep-chart-caption{ font-size:11.5px; color:#777; margin-top:6px; font-style:italic; }
+.rep-footer{ margin-top:30px; padding-top:12px; border-top:1px solid #ddd; font-size:10.5px; color:#999; text-align:center; }
+.rep-pos{ color:#2e7d32; font-weight:600; }
+.rep-neg{ color:#c62828; font-weight:600; }
+
 #printReport{ display:none; }
 .rep-table{ width:100%; border-collapse:collapse; margin:10px 0 18px; font-size:13px; }
 .rep-table th, .rep-table td{ text-align:left; padding:6px 8px; border-bottom:1px solid #ddd; }
@@ -1984,6 +1998,75 @@ function buildRecommendations(){
   return recos;
 }
 
+function tigerFamilyLogoSVG(){
+  return `
+    <svg width="64" height="64" viewBox="0 0 70 70" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <clipPath id="repLogoClip"><circle cx="35" cy="35" r="29"/></clipPath>
+      </defs>
+      <circle cx="35" cy="35" r="32" fill="#1B140D"/>
+      <g clip-path="url(#repLogoClip)">
+        <rect x="0" y="0" width="70" height="70" fill="#F4A93B"/>
+        <g stroke="#1B140D" stroke-width="7">
+          <line x1="-10" y1="-5" x2="35" y2="75"/>
+          <line x1="10" y1="-5" x2="55" y2="75"/>
+          <line x1="30" y1="-5" x2="75" y2="75"/>
+          <line x1="50" y1="-5" x2="95" y2="75"/>
+          <line x1="-30" y1="-5" x2="15" y2="75"/>
+        </g>
+      </g>
+      <circle cx="35" cy="35" r="32" fill="none" stroke="#E8630A" stroke-width="2.5"/>
+    </svg>`;
+}
+
+function chartToImgTag(chartInstance, altText, captionText){
+  if(!chartInstance || typeof chartInstance.toBase64Image !== 'function') return '';
+  let dataUrl;
+  try{ dataUrl = chartInstance.toBase64Image(); } catch(e){ return ''; }
+  if(!dataUrl) return '';
+  return `<div class="rep-chart-block"><img src="${dataUrl}" alt="${altText}"><div class="rep-chart-caption">${captionText}</div></div>`;
+}
+
+function buildFinancialAnalysisHTML(income, fixedPaid, varSpent, spent, saved){
+  const savingsRate = income>0 ? (saved/income*100) : 0;
+  const fixedPct = income>0 ? (fixedPaid/income*100) : 0;
+  const varPct = income>0 ? (varSpent/income*100) : 0;
+  const margin = saved - state.savingsSplit.total;
+
+  let comparisonHtml = '';
+  if(state.history.length>0){
+    const prev = state.history[state.history.length-1];
+    const diffIncome = income - prev.income;
+    const diffSpent = spent - prev.spent;
+    const diffSaved = saved - prev.saved;
+    const cls = (v, lowerIsBetter)=> (lowerIsBetter ? v<=0 : v>=0) ? 'rep-pos' : 'rep-neg';
+    const sign = v => v>=0 ? '+' : '';
+    comparisonHtml = `
+      <div class="rep-h2">Comparación con ${monthDisplay(prev.month)}</div>
+      <table class="rep-table">
+        <tr><th>Concepto</th><th>${monthDisplay(prev.month)}</th><th>${monthDisplay(state.month)}</th><th>Variación</th></tr>
+        <tr><td>Ingresos</td><td>${fmt(prev.income)}€</td><td>${fmt(income)}€</td><td class="${cls(diffIncome,false)}">${sign(diffIncome)}${fmt(diffIncome)}€</td></tr>
+        <tr><td>Gastado</td><td>${fmt(prev.spent)}€</td><td>${fmt(spent)}€</td><td class="${cls(diffSpent,true)}">${sign(diffSpent)}${fmt(diffSpent)}€</td></tr>
+        <tr><td>Ahorrado</td><td>${fmt(prev.saved)}€</td><td>${fmt(saved)}€</td><td class="${cls(diffSaved,false)}">${sign(diffSaved)}${fmt(diffSaved)}€</td></tr>
+      </table>`;
+  } else {
+    comparisonHtml = `<div class="cat-sub" style="color:#999; margin-bottom:10px;">Aún no hay un mes cerrado anterior con el que comparar. Cierra este mes desde Ahorro para empezar la comparativa.</div>`;
+  }
+
+  return `
+    <div class="rep-h2">Análisis financiero real</div>
+    <div class="rep-kpi-row">
+      <div class="rep-kpi"><div class="rep-kpi-label">Tasa de ahorro</div><div class="rep-kpi-value">${savingsRate.toFixed(1)}%</div></div>
+      <div class="rep-kpi"><div class="rep-kpi-label">Gasto fijo / ingresos</div><div class="rep-kpi-value">${fixedPct.toFixed(1)}%</div></div>
+      <div class="rep-kpi"><div class="rep-kpi-label">Gasto variable / ingresos</div><div class="rep-kpi-value">${varPct.toFixed(1)}%</div></div>
+    </div>
+    <table class="rep-table">
+      <tr><th>Margen sobre el objetivo de ahorro (${fmt(state.savingsSplit.total)}€)</th><td class="${margin>=0?'rep-pos':'rep-neg'}">${margin>=0?'+':''}${fmt(margin)}€ ${margin>=0?'(por encima del objetivo)':'(por debajo del objetivo)'}</td></tr>
+    </table>
+    ${comparisonHtml}
+  `;
+}
+
 function buildMonthlyReportHTML(){
   const income = totalIncome();
   const fixedPaid = totalFixedPaidThisMonth();
@@ -1991,6 +2074,9 @@ function buildMonthlyReportHTML(){
   const spent = fixedPaid + varSpent;
   const saved = income - spent;
   const recos = buildRecommendations();
+
+  // Aseguramos que las gráficas están dibujadas antes de capturarlas como imagen
+  try{ renderDashboard(); renderGraficas(); } catch(e){ console.error('No se pudieron preparar las gráficas para el informe', e); }
 
   const incomeRows = state.income.items.map(i=>
     `<tr><td>${i.name}</td><td>${accountLabel(i.account)}</td><td>${i.kind==='puntual'?'Puntual':'Recurrente'}</td><td>${fmt(i.amount)}€</td></tr>`
@@ -2012,9 +2098,23 @@ function buildMonthlyReportHTML(){
 
   const recoHtml = recos.map(r=>`<div class="rep-reco">🐯 ${r}</div>`).join('');
 
+  const chartsHtml = [
+    chartToImgTag(_chartBudget, 'Presupuesto vs gasto real', 'Presupuesto vs. gasto real por categoría'),
+    chartToImgTag(_chartDist, 'Distribución del gasto', 'Distribución del gasto del mes por categoría'),
+    chartToImgTag(_chartDashEvo, 'Evolución de gastos', 'Evolución de ingresos y gastos mes a mes'),
+    chartToImgTag(_chartCatTrend, 'Comparativa por categoría', 'Comparativa de gasto por categoría a lo largo de los meses'),
+    chartToImgTag(_chartYearly, 'Previsión a 12 meses', 'Previsión de gastos, ingresos y ahorro a 12 meses')
+  ].join('');
+
   return `
-    <div class="rep-h1">FINANZAS TIGRE — Informe mensual de ${monthDisplay(state.month)}</div>
-    <div class="rep-meta">Generado el ${new Date().toLocaleDateString('es-ES',{day:'2-digit',month:'long',year:'numeric'})}</div>
+    <div class="rep-letterhead">
+      ${tigerFamilyLogoSVG()}
+      <div class="rep-brand-text">
+        <div class="rep-h1" style="margin:0;">FINANZAS TIGRE</div>
+        <div class="rep-family">Familia Cocho · Charo</div>
+      </div>
+    </div>
+    <div class="rep-meta">Informe mensual de ${monthDisplay(state.month)} — Generado el ${new Date().toLocaleDateString('es-ES',{day:'2-digit',month:'long',year:'numeric'})}</div>
 
     <div class="rep-h2">Resumen del mes</div>
     <table class="rep-table">
@@ -2025,6 +2125,8 @@ function buildMonthlyReportHTML(){
       <tr><th>Ahorro real este mes</th><td>${fmt(saved)}€</td></tr>
       <tr><th>Objetivo de ahorro</th><td>${fmt(state.savingsSplit.total)}€ (${fmt(state.savingsSplit.own)}€ tu cuenta / ${fmt(state.savingsSplit.melanie)}€ Melanie)</td></tr>
     </table>
+
+    ${buildFinancialAnalysisHTML(income, fixedPaid, varSpent, spent, saved)}
 
     <div class="rep-h2">Ingresos</div>
     <table class="rep-table">
@@ -2050,8 +2152,13 @@ function buildMonthlyReportHTML(){
       ${historyRows}
     </table>
 
+    <div class="rep-h2">Gráficas</div>
+    ${chartsHtml || '<div class="cat-sub" style="color:#999;">Abre la pestaña Gráficas al menos una vez antes de exportar para que las imágenes se incluyan aquí.</div>'}
+
     <div class="rep-h2">Recomendaciones</div>
     ${recoHtml}
+
+    <div class="rep-footer">Finanzas Tigre — Informe generado automáticamente · Familia Cocho · Charo</div>
   `;
 }
 
