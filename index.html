@@ -345,15 +345,6 @@ nav.tabbar button.active .ic{filter:drop-shadow(0 0 6px rgba(244,169,59,0.5));}
     </div>
 
     <div class="card">
-      <div class="card-title">🔄 Reimportar datos de agosto (actualizado)</div>
-      <div class="cat-sub" style="margin-bottom:12px;">
-        Trae la versión más reciente de tu Excel: gastos fijos y periódicos corregidos (recibos de luz/agua/internet, seguros de coche prorrateados), y las nuevas categorías Bienestar y belleza, Efectivo/Cajero y Ropa y calzado, con todos sus movimientos reales de agosto.
-      </div>
-      <div class="cat-sub" style="color:var(--red); margin-bottom:12px;">⚠️ Esto sobrescribe tus gastos fijos, presupuestos variables y movimientos de agosto actuales. Tus ingresos, historial de meses cerrados y configuración de ahorro NO se tocan.</div>
-      <button class="btn btn-outline btn-block" onclick="reimportAugustData()">Reimportar datos actualizados</button>
-    </div>
-
-    <div class="card">
       <div class="card-title">Ingresos del mes <span class="pill mono" id="incomeTotalPill">0€</span></div>
       <div id="incomeList"></div>
     </div>
@@ -601,8 +592,7 @@ const defaultState = {
     items: [
       { id:'i1', name:'Sueldo Proaguas', amount:0.00, account:'own', kind:'recurrente', isIMV:false },
       { id:'i2', name:'Prestación paternidad (Seg. Social)', amount:2633.45, account:'own', kind:'puntual', isIMV:false },
-      { id:'i3', name:'IMV mensual', amount:310.50, account:'melanie', kind:'recurrente', isIMV:true },
-      { id:'i4', name:'IMV acumulado (regularización)', amount:1242.00, account:'melanie', kind:'puntual', isIMV:true },
+      { id:'i3', name:'IMV (Ingreso Mínimo Vital)', amount:1242.00, account:'melanie', kind:'recurrente', isIMV:true },
       { id:'i5', name:'Devolución de mi padre', amount:500.00, account:'own', kind:'puntual', isIMV:false }
     ]
   },
@@ -611,8 +601,6 @@ const defaultState = {
     { id: 'f2', name: 'Recibos BBVA (luz, agua, internet)', amount: 172.99, frequency: 'mensual' },
     { id: 'f3', name: 'Seguros y mutuas', amount: 87.02, frequency: 'mensual' },
     { id: 'f4', name: 'Transferencias (luz, comunidad, otros)', amount: 125.00, frequency: 'mensual' },
-    { id: 'f5', name: 'Seguro Seat Ibiza (prorrateado)', amount: 230.88, frequency: 'anual' },
-    { id: 'f6', name: 'Seguro KIA Mapfre (prorrateado)', amount: 175.02, frequency: 'semestral' },
     { id: 'f7', name: 'Pago tarjeta de crédito (mes anterior)', amount: 382.00, frequency: 'mensual' },
     { id: 'f8', name: 'Préstamo Yayo (envío Ecuador — normalmente se reintegra el mismo mes)', amount: 874.00, frequency: 'mensual' }
   ],
@@ -620,12 +608,11 @@ const defaultState = {
     { id:'bp1', billId:'f1', billName:'Hipoteca + préstamos', amount:524.99, date:'2026-08-01', frequency:'mensual' },
     { id:'bp2', billId:'f2', billName:'Recibos BBVA (luz, agua, internet)', amount:172.99, date:'2026-08-04', frequency:'mensual' },
     { id:'bp3', billId:'f3', billName:'Seguros y mutuas', amount:87.02, date:'2026-08-01', frequency:'mensual' },
-    { id:'bp4', billId:'f4', billName:'Transferencias (luz, comunidad, otros)', amount:125.00, date:'2026-08-08', frequency:'mensual' },
-    { id:'bp5', billId:'f5', billName:'Seguro Seat Ibiza (prorrateado)', amount:230.88, date:'2026-08-01', frequency:'anual' },
-    { id:'bp6', billId:'f6', billName:'Seguro KIA Mapfre (prorrateado)', amount:175.02, date:'2026-08-01', frequency:'semestral' }
-    // Tarjeta de crédito y Préstamo Yayo se dejan SIN marcar como pagados:
-    // son movimientos de deuda que se reintegran/gestionan aparte, no gasto de consumo real.
-    // Regístralos tú desde Presupuesto si quieres que cuenten como gasto este mes.
+    { id:'bp4', billId:'f4', billName:'Transferencias (luz, comunidad, otros)', amount:125.00, date:'2026-08-08', frequency:'mensual' }
+    // Seguros de coche, tarjeta de crédito y Préstamo Yayo se dejan SIN marcar como pagados:
+    // los del coche se registran el mes que de verdad se cobren (no se prorratean por adelantado),
+    // y tarjeta/Yayo son movimientos de deuda que se gestionan aparte.
+    // Regístralos tú desde Presupuesto cuando toque cada uno.
   ],
   varBudgets: [
     { id: 'v1', name: 'Supermercado', budget: 400.00, note: '200€ + 100€ cubiertos por IMV' },
@@ -864,8 +851,8 @@ function billStatus(item){
   if(!last) return { due:true, text:'Pendiente de primer pago' };
   const [ly,lm] = last.date.split('-').map(Number);
   const dueDate = new Date(ly, lm-1 + FREQ_MONTHS[item.frequency], 1);
-  const now = new Date();
-  const nowFirst = new Date(now.getFullYear(), now.getMonth(), 1);
+  const [ny, nm] = state.month.split('-').map(Number);
+  const nowFirst = new Date(ny, nm-1, 1); // referencia: el mes que la app tiene abierto, no el reloj real
   if(dueDate <= nowFirst) return { due:true, text:'Pendiente — vencido desde '+dueDate.toLocaleDateString('es-ES',{month:'short', year:'numeric'}) };
   return { due:false, text:'Al día hasta '+dueDate.toLocaleDateString('es-ES',{month:'short', year:'numeric'}) };
 }
@@ -877,6 +864,15 @@ function spentInCategory(catId){
   return state.expenses.filter(e=>e.category===catId).reduce((s,e)=>s+Number(e.amount||0),0);
 }
 function totalSpent(){ return state.expenses.reduce((s,e)=>s+Number(e.amount||0),0); }
+function appTodayDate(){
+  const [y,m] = state.month.split('-').map(Number);
+  const real = new Date();
+  if(real.getFullYear()===y && real.getMonth()+1===m){
+    return real.toISOString().slice(0,10);
+  }
+  const lastDay = new Date(y, m, 0).getDate();
+  return `${y}-${String(m).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`;
+}
 function daysInMonth(monthStr){
   const [y,m] = monthStr.split('-').map(Number);
   return new Date(y, m, 0).getDate();
@@ -1080,39 +1076,49 @@ function renderDashboard(){
 
 let _chartDashEvo;
 function renderDashEvolutionChart(){
-  chartDefaults();
+  const note = document.getElementById('dashEvolutionNote');
   const closedMonths = state.history.map(h=>({ label: monthDisplay(h.month), spent: h.spent, income: h.income, current:false }));
   const currentPoint = { label: monthDisplay(state.month)+' (en curso)', spent: totalFixedPaidThisMonth()+totalSpent(), income: totalIncome(), current:true };
   const points = [...closedMonths, currentPoint];
 
-  const note = document.getElementById('dashEvolutionNote');
   if(points.length<=1){
     note.textContent = 'Agosto es tu primer mes: esta gráfica irá tomando forma según cierres meses (pestaña Ahorro → "Cerrar mes y archivar") y se irá completando con el histórico real.';
   } else {
     note.textContent = 'Los meses cerrados son datos fijos; el último punto (en curso) se actualiza en vivo según registras gastos.';
   }
 
-  const ctx = document.getElementById('chartDashEvolution');
-  if(_chartDashEvo) _chartDashEvo.destroy();
-  _chartDashEvo = new Chart(ctx, {
-    type:'line',
-    data:{
-      labels: points.map(p=>p.label),
-      datasets:[
-        { label:'Gastado', data: points.map(p=>p.spent), borderColor:'#E8630A', backgroundColor:'rgba(232,99,10,0.12)', fill:true, tension:0.3,
-          pointBackgroundColor: points.map(p=>p.current?'#F4A93B':'#E8630A'), pointRadius: points.map(p=>p.current?6:3) },
-        { label:'Ingresos', data: points.map(p=>p.income), borderColor:'#3C9169', backgroundColor:'transparent', tension:0.3, pointRadius:3, borderDash:[4,3] }
-      ]
-    },
-    options:{
-      responsive:true,
-      plugins:{ legend:{ position:'bottom', labels:{boxWidth:12, padding:12} } },
-      scales:{
-        y:{ beginAtZero:true, grid:{color:'rgba(247,237,224,0.06)'} },
-        x:{ grid:{display:false} }
+  if(typeof Chart === 'undefined'){
+    note.innerHTML = '⚠️ No se pudo cargar el motor de gráficas (revisa tu conexión a internet y recarga la app). El resto de la app funciona igual.';
+    return;
+  }
+
+  try{
+    chartDefaults();
+    const ctx = document.getElementById('chartDashEvolution');
+    if(_chartDashEvo) _chartDashEvo.destroy();
+    _chartDashEvo = new Chart(ctx, {
+      type:'line',
+      data:{
+        labels: points.map(p=>p.label),
+        datasets:[
+          { label:'Gastado', data: points.map(p=>p.spent), borderColor:'#E8630A', backgroundColor:'rgba(232,99,10,0.12)', fill:true, tension:0.3,
+            pointBackgroundColor: points.map(p=>p.current?'#F4A93B':'#E8630A'), pointRadius: points.map(p=>p.current?6:3) },
+          { label:'Ingresos', data: points.map(p=>p.income), borderColor:'#3C9169', backgroundColor:'transparent', tension:0.3, pointRadius:3, borderDash:[4,3] }
+        ]
+      },
+      options:{
+        responsive:true,
+        plugins:{ legend:{ position:'bottom', labels:{boxWidth:12, padding:12} } },
+        scales:{
+          y:{ beginAtZero:true, grid:{color:'rgba(247,237,224,0.06)'} },
+          x:{ grid:{display:false} }
+        }
       }
-    }
-  });
+    });
+  } catch(e){
+    console.error('Error dibujando la gráfica de evolución:', e);
+    note.innerHTML = '⚠️ No se pudo dibujar esta gráfica. El resto de la app funciona con normalidad.';
+  }
 }
 
 /* ===================== RENDER: INGRESOS ===================== */
@@ -1163,8 +1169,6 @@ function matchCategoryByName(nameLower){
     { test:/bbva|recibo/, id:'f2', type:'fixed' },
     { test:/mutua/, id:'f3', type:'fixed' },
     { test:/transferencia/, id:'f4', type:'fixed' },
-    { test:/seat/, id:'f5', type:'fixed' },
-    { test:/kia|mapfre/, id:'f6', type:'fixed' },
     { test:/tarjeta.*credito/, id:'f7', type:'fixed' }
   ];
   for(const r of rules){ if(r.test.test(nameLower)) return { id:r.id, type:r.type }; }
@@ -1173,7 +1177,6 @@ function matchCategoryByName(nameLower){
 function matchIncomeByName(nameLower){
   if(nameLower.includes('proaguas') || nameLower.includes('sueldo pago')) return 'i1';
   if(nameLower.includes('paternidad')) return 'i2';
-  if(nameLower.includes('imv') && nameLower.includes('acumul')) return 'i4';
   if(nameLower.includes('imv')) return 'i3';
   return null;
 }
@@ -1207,6 +1210,7 @@ async function importExcelFile(){
       const ws = wb.Sheets['RESUMEN GASTOS'];
       const rows = XLSX.utils.sheet_to_json(ws, { header:1, raw:true });
       const header = (rows[0]||[]).map(h=>String(h||'').toLowerCase());
+      const colTipo = header.findIndex(h=>h.includes('tipo'));
       let colName = header.findIndex(h=>h.includes('gasto') && !h.includes('tipo'));
       let colPresu = header.findIndex(h=>h.includes('presupuesto'));
       let colReal = header.findIndex(h=>h.includes('real'));
@@ -1224,6 +1228,7 @@ async function importExcelFile(){
         const presu = row[colPresu];
         const real = row[colReal];
         if(real===undefined || real===null || real==='' || typeof real!=='number') continue;
+        const tipo = colTipo>=0 ? String(row[colTipo]||'').toLowerCase() : '';
 
         const match = matchCategoryByName(nameLower);
         if(match && match.type==='variable'){
@@ -1231,25 +1236,46 @@ async function importExcelFile(){
           if(v){
             if(typeof presu === 'number') v.budget = presu;
             state.expenses = state.expenses.filter(e=>e.category!==v.id);
-            state.expenses.push({ id:'imp-'+v.id+'-'+Date.now(), category:v.id, concept:'Importado desde Excel', amount:real, date:new Date().toISOString().slice(0,10) });
+            state.expenses.push({ id:'imp-'+v.id+'-'+Date.now(), category:v.id, concept:'Importado desde Excel', amount:real, date:appTodayDate() });
             importedCategories++;
           }
         } else if(match && match.type==='fixed'){
           const f = state.fixed.find(x=>x.id===match.id);
           if(f){
             f.amount = real;
-            state.billPayments = state.billPayments.filter(p=>!(p.billId===f.id && p.date.slice(0,7)===state.month));
-            state.billPayments.push({ id:'bp-'+f.id+'-'+Date.now(), billId:f.id, billName:f.name, amount:real, date:new Date().toISOString().slice(0,10), frequency:f.frequency });
+            const isDebtMovement = (match.id==='f7' || match.id==='f8' || tipo.includes('prestamo') || tipo.includes('préstamo'));
+            if(!isDebtMovement){
+              state.billPayments = state.billPayments.filter(p=>!(p.billId===f.id && p.date.slice(0,7)===state.month));
+              state.billPayments.push({ id:'bp-'+f.id+'-'+Date.now(), billId:f.id, billName:f.name, amount:real, date:appTodayDate(), frequency:f.frequency });
+            }
             importedFixed++;
           }
-        } else if(typeof presu === 'number' && presu>0){
-          const id = 'v'+Date.now()+Math.floor(Math.random()*1000);
-          state.varBudgets.push({ id, name, budget:presu });
-          state.expenses.push({ id:'imp-'+id, category:id, concept:'Importado desde Excel', amount:real, date:new Date().toISOString().slice(0,10) });
+        } else if(tipo.includes('aleatorio') || (typeof presu === 'number' && presu>0)){
+          // "Aleatorio" en la columna Tipo = gasto variable, aunque todavía no tenga presupuesto asignado
+          let v = state.varBudgets.find(x=>x.name.trim().toLowerCase()===name.trim().toLowerCase());
+          if(!v){
+            v = { id: 'v'+Date.now()+Math.floor(Math.random()*1000), name, budget: (typeof presu==='number' ? presu : 0) };
+            state.varBudgets.push(v);
+          } else if(typeof presu === 'number'){
+            v.budget = presu;
+          }
+          state.expenses = state.expenses.filter(e=>e.category!==v.id);
+          state.expenses.push({ id:'imp-'+v.id+'-'+Date.now(), category:v.id, concept:'Importado desde Excel', amount:real, date:appTodayDate() });
           importedCategories++;
         } else {
-          const id = 'f'+Date.now()+Math.floor(Math.random()*1000);
-          state.fixed.push({ id, name, amount:real, frequency:'mensual' });
+          // "Fijo" o "Préstamo" en la columna Tipo, o sin columna Tipo: se crea como gasto fijo,
+          // pero NO se marca como pagado automáticamente si es un préstamo (movimiento de deuda)
+          let f = state.fixed.find(x=>x.name.trim().toLowerCase()===name.trim().toLowerCase());
+          if(!f){
+            f = { id: 'f'+Date.now()+Math.floor(Math.random()*1000), name, amount:real, frequency:'mensual' };
+            state.fixed.push(f);
+          } else {
+            f.amount = real;
+          }
+          if(!tipo.includes('prestamo') && !tipo.includes('préstamo')){
+            state.billPayments = state.billPayments.filter(p=>!(p.billId===f.id && p.date.slice(0,7)===state.month));
+            state.billPayments.push({ id:'bp-'+f.id+'-'+Date.now(), billId:f.id, billName:f.name, amount:real, date:appTodayDate(), frequency:'mensual' });
+          }
           importedFixed++;
         }
       }
@@ -1294,7 +1320,7 @@ async function importExcelFile(){
           if(/^total/i.test(concepto.trim())) continue;
           if(typeof importe !== 'number') continue;
 
-          let dateStr = new Date().toISOString().slice(0,10);
+          let dateStr = appTodayDate();
           const rawDate = colFecha>=0 ? row[colFecha] : null;
           if(rawDate && typeof rawDate.getFullYear==='function' && typeof rawDate.getMonth==='function'){
             dateStr = rawDate.toISOString().slice(0,10);
@@ -1346,7 +1372,6 @@ async function importExcelFile(){
       }
 
       if(targetCol>=0){
-        let imvRowMatched = false;
         for(let i=1;i<rows.length;i++){
           const row = rows[i];
           if(!row) continue;
@@ -1356,18 +1381,19 @@ async function importExcelFile(){
           const val = row[targetCol];
           if(typeof val !== 'number') continue;
           const matchId = matchIncomeByName(name.toLowerCase());
-          if(matchId==='i3') imvRowMatched = true;
           if(matchId){
             const it = state.income.items.find(x=>x.id===matchId);
             if(it){ it.amount = val; importedIncome++; }
           } else {
-            state.income.items.push({ id:'i'+Date.now()+Math.floor(Math.random()*1000), name, amount:val, account:'own', kind:'puntual', isIMV:/imv/i.test(name) });
+            // Busca primero por nombre exacto (ignorando mayúsculas) para actualizar en vez de duplicar
+            const existing = state.income.items.find(x=>x.name.trim().toLowerCase()===name.trim().toLowerCase());
+            if(existing){
+              existing.amount = val;
+            } else {
+              state.income.items.push({ id:'i'+Date.now()+Math.floor(Math.random()*1000), name, amount:val, account:'own', kind:'puntual', isIMV:/imv/i.test(name) });
+            }
             importedIncome++;
           }
-        }
-        if(imvRowMatched){
-          const acum = state.income.items.find(x=>x.id==='i4');
-          if(acum) acum.amount = 0;
         }
       }
     }
@@ -1389,17 +1415,6 @@ async function importExcelFile(){
   }
 }
 
-function reimportAugustData(){
-  if(!confirm('¿Reimportar? Se sobrescribirán tus gastos fijos, presupuestos variables y movimientos de agosto con los datos actualizados del Excel. Tus ingresos, ahorro e historial de meses cerrados no se tocan.')) return;
-  state.fixed = structuredClone(defaultState.fixed);
-  state.billPayments = structuredClone(defaultState.billPayments);
-  state.varBudgets = structuredClone(defaultState.varBudgets);
-  state.expenses = structuredClone(defaultState.expenses);
-  state.importSource = defaultState.importSource;
-  state.importBannerDismissed = false;
-  saveState(); renderAll();
-  toast('Datos de agosto actualizados 🐾');
-}
 function dismissImportBanner(){
   state.importBannerDismissed = true;
   saveState(); renderIngresos();
@@ -1446,7 +1461,7 @@ function renderPresupuesto(){
           </div>
         </div>
         <div style="display:flex; gap:8px;">
-          <input type="date" id="payDate-${f.id}" value="${new Date().toISOString().slice(0,10)}" style="flex:1; background:var(--bg-elev); border:1px solid var(--line); color:var(--cream); border-radius:8px; padding:8px; font-size:12.5px;">
+          <input type="date" id="payDate-${f.id}" value="${appTodayDate()}" style="flex:1; background:var(--bg-elev); border:1px solid var(--line); color:var(--cream); border-radius:8px; padding:8px; font-size:12.5px;">
           <button class="btn btn-outline" style="white-space:nowrap; padding:8px 12px; font-size:12.5px;" onclick="registerBillPayment('${f.id}')">💳 Registrar pago</button>
         </div>
       </div>`;
@@ -1517,7 +1532,7 @@ function registerBillPayment(billId){
   const item = state.fixed.find(f=>f.id===billId);
   if(!item) return;
   const dateInput = document.getElementById('payDate-'+billId);
-  const date = dateInput ? dateInput.value : new Date().toISOString().slice(0,10);
+  const date = dateInput ? dateInput.value : appTodayDate();
   if(!date){ toast('Elige una fecha'); return; }
   state.billPayments.push({ id:'bp'+Date.now(), billId, billName:item.name, amount:item.amount, date, frequency:item.frequency });
   saveState(); renderAll(); toast('Pago de "'+item.name+'" registrado 🐾');
@@ -1542,10 +1557,14 @@ function addFixed(){
 
 /* ===================== RENDER: GASTOS ===================== */
 function renderGastosForm(){
+  if(!state.varBudgets || state.varBudgets.length===0){
+    state.varBudgets = structuredClone(defaultState.varBudgets);
+    saveState();
+  }
   const sel = document.getElementById('expenseCategory');
   sel.innerHTML = state.varBudgets.map(v=>`<option value="${v.id}">${v.name}</option>`).join('');
   if(!document.getElementById('expenseDate').value){
-    document.getElementById('expenseDate').value = new Date().toISOString().slice(0,10);
+    document.getElementById('expenseDate').value = appTodayDate();
   }
 }
 function quienLabel(q){ return q==='melanie' ? 'Melanie' : q==='fabian' ? 'Fabián' : ''; }
