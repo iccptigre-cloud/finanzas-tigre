@@ -2027,6 +2027,134 @@ function chartToImgTag(chartInstance, altText, captionText){
   return `<div class="rep-chart-block"><img src="${dataUrl}" alt="${altText}"><div class="rep-chart-caption">${captionText}</div></div>`;
 }
 
+/* Genera una gráfica aparte, en horizontal y a tamaño fijo, solo para el PDF —
+   así no depende de en qué pestaña estabas ni hereda la proporción alta/estrecha del móvil. */
+function captureChartForExport(config, width, height){
+  width = width || 760; height = height || 340;
+  const canvas = document.createElement('canvas');
+  canvas.width = width; canvas.height = height;
+  canvas.style.position = 'fixed';
+  canvas.style.left = '-9999px';
+  canvas.style.top = '0';
+  document.body.appendChild(canvas);
+  let dataUrl = '';
+  try{
+    config.options = config.options || {};
+    config.options.responsive = false;
+    config.options.maintainAspectRatio = false;
+    config.options.animation = false;
+    config.options.plugins = config.options.plugins || {};
+    config.options.plugins.legend = Object.assign({ position:'bottom', labels:{boxWidth:12, padding:12, color:'#333' } }, config.options.plugins.legend||{});
+    config.plugins = config.plugins || [];
+    // Fondo blanco forzado: sin esto, algunos lectores de PDF muestran la gráfica transparente/en blanco
+    config.plugins.push({
+      id: 'reportWhiteBg',
+      beforeDraw: (c) => {
+        const ctx = c.canvas.getContext('2d');
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-over';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, c.width, c.height);
+        ctx.restore();
+      }
+    });
+    const chart = new Chart(canvas, config);
+    chart.update('none'); // fuerza el dibujado inmediato antes de capturar la imagen
+    dataUrl = chart.toBase64Image('image/png', 1);
+    chart.destroy();
+  } catch(e){ console.error('Error generando gráfica para el informe:', e); }
+  document.body.removeChild(canvas);
+  return dataUrl;
+}
+function reportChartImg(config, width, height, altText, captionText){
+  const dataUrl = captureChartForExport(config, width, height);
+  if(!dataUrl) return '';
+  return `<div class="rep-chart-block"><img src="${dataUrl}" alt="${altText}"><div class="rep-chart-caption">${captionText}</div></div>`;
+}
+
+function buildExportCharts(){
+  const parts = [];
+  const REP_COLORS = ['#E8630A','#F4A93B','#3C9169','#D14B4B','#8B6BD1','#4FA6C9','#C97F3E'];
+
+  {
+    const labels = state.varBudgets.map(v=>v.name);
+    const budgets = state.varBudgets.map(v=>v.budget);
+    const spent = state.varBudgets.map(v=>spentInCategory(v.id));
+    parts.push(reportChartImg({
+      type:'bar',
+      data:{ labels, datasets:[
+        { label:'Presupuesto', data:budgets, backgroundColor:'rgba(232,99,10,0.35)' },
+        { label:'Gastado', data:spent, backgroundColor:'#E8630A' }
+      ]},
+      options:{ scales:{ y:{ beginAtZero:true, ticks:{color:'#333'} }, x:{ ticks:{color:'#333'} } } }
+    }, 760, 320, 'Presupuesto vs gasto real', 'Presupuesto vs. gasto real por categoría'));
+  }
+
+  {
+    const labels = state.varBudgets.map(v=>v.name);
+    const data = state.varBudgets.map(v=>spentInCategory(v.id));
+    if(data.some(d=>d>0)){
+      parts.push(reportChartImg({
+        type:'doughnut',
+        data:{ labels, datasets:[{ data, backgroundColor: REP_COLORS }]},
+        options:{ }
+      }, 620, 380, 'Distribución del gasto', 'Distribución del gasto del mes por categoría'));
+    }
+  }
+
+  {
+    const closedMonths = state.history.map(h=>({ label: monthDisplay(h.month), spent: h.spent, income: h.income }));
+    const currentPoint = { label: monthDisplay(state.month)+' (en curso)', spent: totalFixedPaidThisMonth()+totalSpent(), income: totalIncome() };
+    const points = [...closedMonths, currentPoint];
+    parts.push(reportChartImg({
+      type:'line',
+      data:{ labels: points.map(p=>p.label), datasets:[
+        { label:'Gastado', data:points.map(p=>p.spent), borderColor:'#E8630A', backgroundColor:'rgba(232,99,10,0.12)', fill:true, tension:0.3 },
+        { label:'Ingresos', data:points.map(p=>p.income), borderColor:'#3C9169', backgroundColor:'transparent', tension:0.3 }
+      ]},
+      options:{ scales:{ y:{ beginAtZero:true, ticks:{color:'#333'} }, x:{ ticks:{color:'#333'} } } }
+    }, 760, 320, 'Evolución de gastos', 'Evolución de ingresos y gastos mes a mes'));
+  }
+
+  {
+    const hasHistory = state.history.some(h=>Array.isArray(h.categoryBreakdown) && h.categoryBreakdown.length);
+    if(hasHistory){
+      const labels = state.history.map(h=>monthDisplay(h.month));
+      const catNames = [...new Set(state.history.flatMap(h=>(h.categoryBreakdown||[]).map(c=>c.name)))];
+      const datasets = catNames.map((name, idx)=>({
+        label:name,
+        data: state.history.map(h=>{ const c=(h.categoryBreakdown||[]).find(x=>x.name===name); return c?c.spent:0; }),
+        borderColor: REP_COLORS[idx % REP_COLORS.length],
+        backgroundColor:'transparent'
+      }));
+      parts.push(reportChartImg({
+        type:'line',
+        data:{ labels, datasets },
+        options:{ scales:{ y:{ beginAtZero:true, ticks:{color:'#333'} }, x:{ ticks:{color:'#333'} } } }
+      }, 760, 320, 'Comparativa por categoría', 'Comparativa de gasto por categoría a lo largo de los meses'));
+    }
+  }
+
+  {
+    const rows = yearlyForecast(12);
+    parts.push(reportChartImg({
+      type:'bar',
+      data:{
+        labels: rows.map(r=>r.label.split(' ')[0].slice(0,3)+' '+r.month.slice(2,4)+(r.isRealIncome?'':' *')),
+        datasets:[
+          { label:'Gastos fijos', data: rows.map(r=>r.fixed), backgroundColor:'#D14B4B', stack:'s' },
+          { label:'Gastos variables', data: rows.map(r=>r.variable), backgroundColor:'#E8630A', stack:'s' },
+          { type:'line', label:'Ingresos', data: rows.map(r=>r.income), borderColor:'#F4A93B', backgroundColor:'transparent' },
+          { type:'line', label:'Ahorro del mes', data: rows.map(r=>r.saved), borderColor:'#3C9169', backgroundColor:'transparent' }
+        ]
+      },
+      options:{ scales:{ y:{ beginAtZero:true, ticks:{color:'#333'} }, x:{ stacked:true, ticks:{color:'#333'} } } }
+    }, 760, 340, 'Previsión a 12 meses', 'Previsión de gastos, ingresos y ahorro a 12 meses'));
+  }
+
+  return parts.join('');
+}
+
 function buildFinancialAnalysisHTML(income, fixedPaid, varSpent, spent, saved){
   const savingsRate = income>0 ? (saved/income*100) : 0;
   const fixedPct = income>0 ? (fixedPaid/income*100) : 0;
@@ -2098,13 +2226,7 @@ function buildMonthlyReportHTML(){
 
   const recoHtml = recos.map(r=>`<div class="rep-reco">🐯 ${r}</div>`).join('');
 
-  const chartsHtml = [
-    chartToImgTag(_chartBudget, 'Presupuesto vs gasto real', 'Presupuesto vs. gasto real por categoría'),
-    chartToImgTag(_chartDist, 'Distribución del gasto', 'Distribución del gasto del mes por categoría'),
-    chartToImgTag(_chartDashEvo, 'Evolución de gastos', 'Evolución de ingresos y gastos mes a mes'),
-    chartToImgTag(_chartCatTrend, 'Comparativa por categoría', 'Comparativa de gasto por categoría a lo largo de los meses'),
-    chartToImgTag(_chartYearly, 'Previsión a 12 meses', 'Previsión de gastos, ingresos y ahorro a 12 meses')
-  ].join('');
+  const chartsHtml = buildExportCharts();
 
   return `
     <div class="rep-letterhead">
