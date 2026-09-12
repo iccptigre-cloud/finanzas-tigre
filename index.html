@@ -315,6 +315,21 @@ nav.tabbar button.active .ic{filter:drop-shadow(0 0 6px rgba(244,169,59,0.5));}
       <div id="dashFixedList"></div>
     </div>
 
+    <div class="card">
+      <div class="card-title">Quién ha pagado qué este mes</div>
+      <div class="savings-split">
+        <div class="savings-account">
+          <div class="who">Fabián</div>
+          <div class="amt mono" id="dashSpentFabian" style="color:var(--tiger);">0€</div>
+        </div>
+        <div class="savings-account">
+          <div class="who">Melanie</div>
+          <div class="amt mono" id="dashSpentMelanie" style="color:var(--green);">0€</div>
+        </div>
+      </div>
+      <div class="cat-sub" style="margin-top:10px;" id="dashSpentUnassigned"></div>
+    </div>
+
     <div class="card chart-card">
       <div class="card-title">Evolución de gastos por mes</div>
       <canvas id="chartDashEvolution"></canvas>
@@ -1099,6 +1114,15 @@ function renderDashboard(){
   }).join('');
   document.getElementById('dashFixedPill').textContent = fmt(totalFixedPaidThisMonth())+'€ pagado';
 
+  const spentFabian = state.expenses.filter(e=>e.quien==='fabian').reduce((s,e)=>s+Number(e.amount||0),0);
+  const spentMelanie = state.expenses.filter(e=>e.quien==='melanie').reduce((s,e)=>s+Number(e.amount||0),0);
+  const spentUnassigned = state.expenses.filter(e=>!e.quien).reduce((s,e)=>s+Number(e.amount||0),0);
+  document.getElementById('dashSpentFabian').textContent = fmt(spentFabian)+'€';
+  document.getElementById('dashSpentMelanie').textContent = fmt(spentMelanie)+'€';
+  document.getElementById('dashSpentUnassigned').textContent = spentUnassigned>0
+    ? fmt(spentUnassigned)+'€ sin persona asignada (movimientos antiguos o sin ese dato en el Excel)'
+    : '';
+
   renderDashEvolutionChart();
 }
 
@@ -1271,11 +1295,10 @@ async function importExcelFile(){
           const f = state.fixed.find(x=>x.id===match.id);
           if(f){
             f.amount = real;
-            const isDebtMovement = (match.id==='f7' || match.id==='f8' || tipo.includes('prestamo') || tipo.includes('préstamo'));
-            if(!isDebtMovement){
-              state.billPayments = state.billPayments.filter(p=>!(p.billId===f.id && p.date.slice(0,7)===state.month));
-              state.billPayments.push({ id:'bp-'+f.id+'-'+Date.now(), billId:f.id, billName:f.name, amount:real, date:appTodayDate(), frequency:f.frequency });
-            }
+            // Si el Excel trae un importe real este mes (incluidos préstamos/tarjeta), cuenta como
+            // dinero que ha salido de la cuenta este mes — sí se marca como pagado.
+            state.billPayments = state.billPayments.filter(p=>!(p.billId===f.id && p.date.slice(0,7)===state.month));
+            state.billPayments.push({ id:'bp-'+f.id+'-'+Date.now(), billId:f.id, billName:f.name, amount:real, date:appTodayDate(), frequency:f.frequency });
             importedFixed++;
           }
         } else if(tipo.includes('aleatorio') || (typeof presu === 'number' && presu>0)){
@@ -1291,8 +1314,8 @@ async function importExcelFile(){
           state.expenses.push({ id:'imp-'+v.id+'-'+Date.now(), category:v.id, concept:'Importado desde Excel', amount:real, date:appTodayDate() });
           importedCategories++;
         } else {
-          // "Fijo" o "Préstamo" en la columna Tipo, o sin columna Tipo: se crea como gasto fijo,
-          // pero NO se marca como pagado automáticamente si es un préstamo (movimiento de deuda)
+          // "Fijo" o "Préstamo" en la columna Tipo, o sin columna Tipo: se crea como gasto fijo.
+          // También cuenta como pagado si trae un importe real este mes (sale de la cuenta igualmente).
           let f = state.fixed.find(x=>x.name.trim().toLowerCase()===name.trim().toLowerCase());
           if(!f){
             f = { id: 'f'+Date.now()+Math.floor(Math.random()*1000), name, amount:real, frequency:'mensual' };
@@ -1300,10 +1323,8 @@ async function importExcelFile(){
           } else {
             f.amount = real;
           }
-          if(!tipo.includes('prestamo') && !tipo.includes('préstamo')){
-            state.billPayments = state.billPayments.filter(p=>!(p.billId===f.id && p.date.slice(0,7)===state.month));
-            state.billPayments.push({ id:'bp-'+f.id+'-'+Date.now(), billId:f.id, billName:f.name, amount:real, date:appTodayDate(), frequency:'mensual' });
-          }
+          state.billPayments = state.billPayments.filter(p=>!(p.billId===f.id && p.date.slice(0,7)===state.month));
+          state.billPayments.push({ id:'bp-'+f.id+'-'+Date.now(), billId:f.id, billName:f.name, amount:real, date:appTodayDate(), frequency:'mensual' });
           importedFixed++;
         }
       }
@@ -1336,6 +1357,9 @@ async function importExcelFile(){
         const colFecha = header.findIndex(h=>h.includes('fecha'));
         const colConcepto = header.findIndex(h=>h.includes('concepto'));
         const colImporte = header.findIndex(h=>h.includes('importe'));
+        const colMedioPago = header.findIndex(h=>h.includes('medio') || h.includes('tarjeta'));
+        const colBanco = header.findIndex(h=>h.includes('banco'));
+        const colTitular = header.findIndex(h=>h.includes('titular'));
         if(colConcepto<0 || colImporte<0) continue;
 
         const parsed = [];
@@ -1359,7 +1383,24 @@ async function importExcelFile(){
               dateStr = `${yyyy}-${mm}-${dd}`;
             }
           }
-          parsed.push({ id:'imp-'+catId+'-'+i+'-'+Date.now(), category:catId, concept:String(concepto).trim(), amount:importe, date:dateStr });
+
+          let metodoPago = '';
+          if(colMedioPago>=0 && row[colMedioPago]){
+            const mp = String(row[colMedioPago]).toLowerCase();
+            metodoPago = mp.includes('debit') ? 'debito' : mp.includes('efect') || mp.includes('cash') ? 'efectivo' : 'credito';
+          }
+          let banco = '';
+          if(colBanco>=0 && row[colBanco]){
+            const bk = String(row[colBanco]).toLowerCase();
+            banco = bk.includes('caixa') ? 'caixabank' : bk.includes('bbva') ? 'bbva' : '';
+          }
+          let quien = 'fabian'; // por defecto Fabián si la hoja no especifica titular
+          if(colTitular>=0 && row[colTitular]){
+            const tit = String(row[colTitular]).toLowerCase();
+            quien = (tit.includes('mel') || tit.includes('charo')) ? 'melanie' : 'fabian';
+          }
+
+          parsed.push({ id:'imp-'+catId+'-'+i+'-'+Date.now(), category:catId, concept:String(concepto).trim(), amount:importe, date:dateStr, metodoPago, banco, quien });
         }
         if(parsed.length){
           state.expenses = state.expenses.filter(e=>e.category!==catId);
